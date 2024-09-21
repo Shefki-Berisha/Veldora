@@ -101,4 +101,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Contact
 
-For support, questions, or suggestions, feel free to join our [Discord Support Server](https://discord.gg/your-invite-link)
+For support, questions, or suggestions, feel free to join our [Discord Support Server](https://discord.gg/ABUaV7gkju)
