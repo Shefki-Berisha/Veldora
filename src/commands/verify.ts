@@ -1,4 +1,4 @@
-import { EmbedBuilder, Message, Role } from 'discord.js';
+import { EmbedBuilder, Message } from 'discord.js';
 import { Command } from '../types';
 import { mongoClient } from '../index';
 import { captcha } from '../functions/captcha';
@@ -40,19 +40,24 @@ export const verifyCommand: Command = {
 
         const captchaSuccessful = await captcha(collection.code, message, message.author);
 
-        if (!captchaSuccessful) {
+        if (captchaSuccessful === "already_verifying") {
+            return;
+        } else if (!captchaSuccessful) {
             await message.reply({ content: '❌ Verification failed. Please try again later.' });
             return;
         }
 
         try {
-            const completedEmbed = new EmbedBuilder()
-                .setTitle(`✅ Successfully Completed Verification In ${message.guild?.name}`)
-                .setColor("Red");
+            if (captchaSuccessful === true) {
+                const completedEmbed = new EmbedBuilder()
+                    .setTitle(`✅ Successfully Completed Verification In ${message.guild?.name}`)
+                    .setColor("Red");
 
-            await member.roles.add(verifiedRole);
-            await member.roles.remove(unverifiedRole);
-            await user.send({ embeds: [completedEmbed] }).catch(() => {});
+                await member.roles.add(verifiedRole);
+                await member.roles.remove(unverifiedRole);
+                await user.send({ embeds: [completedEmbed] }).catch(() => {});
+                return;
+            }
         } catch (err) {
             console.log(err);
             await message.reply({ content: "❌ There was an error, couldn't add verified role/remove unverified role" });

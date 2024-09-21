@@ -1,6 +1,4 @@
 import {
-    Client,
-    Events,
     AttachmentBuilder,
     EmbedBuilder,
     ActionRowBuilder,
@@ -23,21 +21,21 @@ import { mongoClient } from "../index";
 
 const MAX_ATTEMPTS = 3;
 let userAttempts = 0;
-let alrVerifying = false;
+let alrVerifying: boolean = false;
 
-export async function captcha(text: string, toReply: Message, author: User | GuildMember): Promise<boolean> {
+export async function captcha(text: string, toReply: Message, author: User | GuildMember): Promise<boolean | "already_verifying"> {
     if (!text || !toReply || !author) throw new Error("Invalid arguments");
-    if (alrVerifying === true) {
-        await toReply.reply({ content: "You've automatically failed the verification for trying to abuse the `!verify` command. You can try later." });
-        return false;
+
+    if (alrVerifying) {
+        return "already_verifying";
     }
 
-    if (toReply.channel === null) return false;
+    if (!toReply.channel) return false;
 
     const db = mongoClient.db('discordBot');
     const rolesCollection = db.collection('Verification');
 
-    let output = false;
+    let output: boolean = false;
     let capText = "";
 
     if (text.toLowerCase() === "random") {
@@ -94,7 +92,6 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
         return false;
     }
 
-    // Clean up existing collectors
     const collector = new InteractionCollector(toReply.client, { message: msg, time: 60000 });
     const modalCollector = new InteractionCollector(toReply.client);
 
@@ -102,9 +99,10 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
         if (i.customId === "captchabutton") {
             if (author !== i.user) return await i.reply({ content: "⚠️ This is not your verification.", ephemeral: true });
 
+            const uniqueModalId = `captchaModal_${Date.now()}_${author.id}`;
             const capModal = new ModalBuilder()
                 .setTitle("Submit Captcha Answer Here")
-                .setCustomId("captchaModal");
+                .setCustomId(uniqueModalId);
 
             const answer = new TextInputBuilder()
                 .setCustomId("captchaAnswer")
@@ -114,11 +112,10 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
 
             const row = new ActionRowBuilder<TextInputBuilder>().addComponents(answer);
             capModal.addComponents(row);
-            await i.showModal(capModal);
+            await i.showModal(capModal).catch(console.error);
 
-            // Ensure only one collector is active
             modalCollector.once("collect", async (mI: ModalSubmitInteraction) => {
-                if (mI.customId === "captchaModal") {
+                if (mI.customId === uniqueModalId) {
                     if (mI.user !== i.user) return (await mI.reply({ content: "⚠️ This is not your verification.", ephemeral: true }));
                     const respondAns = mI.fields.getTextInputValue("captchaAnswer").trim();
 
@@ -143,19 +140,28 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
                         await repliedMsg.delete().catch(() => {});
                         await msg.delete().catch(() => {});
                         alrVerifying = false;
+                        userAttempts = 0;
                     }
                 }
             });
         }
     });
 
-    const timeoutPromise = new Promise<void>((_, reject) => setTimeout(async () => {
-        await msg.delete().catch(() => {});
-        output = false;
-        console.log("Captcha timeout");
-        reject("Captcha timeout");
-        alrVerifying = false;
-    }, 60000));
+    const handleTimeout = async () => {
+        try {
+            await msg.delete().catch(() => {});
+            await toReply.reactions.removeAll().catch(() => {});
+            await toReply.react("❌");
+        } catch (err) {
+            console.error(err);
+        } finally {
+            output = false;
+            alrVerifying = false;
+            console.log("Captcha timeout");
+        }
+    };
+
+    const timeoutPromise = new Promise<void>((_, reject) => setTimeout(handleTimeout, 60000));
 
     await Promise.race([timeoutPromise, new Promise<void>(resolve => {
         const interval = setInterval(() => {
