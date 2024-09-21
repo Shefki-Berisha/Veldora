@@ -21,14 +21,18 @@ import {
 import { CaptchaGenerator } from "captcha-canvas";
 import { mongoClient } from "../index";
 
-const rateLimit = new Map<string, { attempts: number, lastAttempt: number }>();
-const RATE_LIMIT_TIME = 60000;
 const MAX_ATTEMPTS = 3;
+let userAttempts = 0;
+let alrVerifying = false;
 
-export async function captcha(text: string, toReply: Message, author: User | GuildMember) {
+export async function captcha(text: string, toReply: Message, author: User | GuildMember): Promise<boolean> {
     if (!text || !toReply || !author) throw new Error("Invalid arguments");
+    if (alrVerifying === true) {
+        await toReply.reply({ content: "You've automatically failed the verification for trying to abuse the `!verify` command. You can try later." });
+        return false;
+    }
 
-    if (toReply.channel === null) return;
+    if (toReply.channel === null) return false;
 
     const db = mongoClient.db('discordBot');
     const rolesCollection = db.collection('Verification');
@@ -36,17 +40,8 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
     let output = false;
     let capText = "";
 
-    const now = Date.now();
-    const userAttempts = rateLimit.get(author.id) || { attempts: 0, lastAttempt: now };
-    if (now - userAttempts.lastAttempt < RATE_LIMIT_TIME && userAttempts.attempts >= MAX_ATTEMPTS) {
-        return await toReply.reply({ content: "⏳ You are trying too frequently. Please wait a minute before trying again." });
-    }
-    if (now - userAttempts.lastAttempt > RATE_LIMIT_TIME) {
-        userAttempts.attempts = 0;
-    }
-
     if (text.toLowerCase() === "random") {
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%*()";
         capText = Array.from({ length: 9 }, () => alphabet.charAt(Math.floor(Math.random() * alphabet.length))).join('');
     } else {
         capText = text;
@@ -60,8 +55,8 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
             color: "gray"
         })
         .setDecoy({
-            opacity: 0.7,
-            size: 30,
+            opacity: 0.4,
+            size: 25,
             color: "gray"
         })
         .setTrace({
@@ -89,19 +84,21 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
                 .setStyle(ButtonStyle.Danger),
         );
 
-    let msg;
-    let repliedMsg;
+    let msg: Message | undefined;
+    let repliedMsg: Message | undefined;
     if (toReply.channel instanceof TextChannel || toReply.channel instanceof DMChannel) {
         msg = await author.send({ embeds: [embed], files: [attachment], components: [button] });
         repliedMsg = await toReply.reply({ content: "Please check your DMs.\n`If you don't see it, please enable your DMs.`" });
+        alrVerifying = true;
     } else {
-        return;
+        return false;
     }
 
+    // Clean up existing collectors
     const collector = new InteractionCollector(toReply.client, { message: msg, time: 60000 });
     const modalCollector = new InteractionCollector(toReply.client);
 
-    collector.on("collect", async (i: ButtonInteraction) => {
+    collector.once("collect", async (i: ButtonInteraction) => {
         if (i.customId === "captchabutton") {
             if (author !== i.user) return await i.reply({ content: "⚠️ This is not your verification.", ephemeral: true });
 
@@ -119,38 +116,45 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
             capModal.addComponents(row);
             await i.showModal(capModal);
 
-            modalCollector.on("collect", async (mI: ModalSubmitInteraction) => {
+            // Ensure only one collector is active
+            modalCollector.once("collect", async (mI: ModalSubmitInteraction) => {
                 if (mI.customId === "captchaModal") {
-                    if (mI.user !== i.user) return await mI.reply({ content: "⚠️ This is not your verification.", ephemeral: true });
+                    if (mI.user !== i.user) return (await mI.reply({ content: "⚠️ This is not your verification.", ephemeral: true }));
                     const respondAns = mI.fields.getTextInputValue("captchaAnswer").trim();
 
                     if (respondAns !== capText) {
-                        userAttempts.attempts += 1;
-                        userAttempts.lastAttempt = now;
+                        userAttempts += 1;
 
-                        if (userAttempts.attempts >= 3) {
-                            await mI.reply({ content: "❌ You have failed the verification. You may try again in 1 minute.", ephemeral: true });
+                        if (userAttempts >= MAX_ATTEMPTS) {
+                            await mI.reply({ content: "❌ You have failed the verification. You may try again later.", ephemeral: true });
                             await msg.delete().catch(() => {});
                             await toReply.reactions.removeAll().catch(() => {});
                             await toReply.react("❌");
+                            alrVerifying = false;
+                            output = false;
                             return;
                         } else {
-                            await mI.reply({ content: `❌ Incorrect answer. You have ${MAX_ATTEMPTS - userAttempts.attempts} tries left.`, ephemeral: true });
+                            await mI.reply({ content: `❌ Incorrect answer. You have ${MAX_ATTEMPTS - userAttempts} tries left.`, ephemeral: true });
                         }
                     } else {
-                        await mI.reply({ content: `✅ The answer you provided is correct.`, ephemeral: true });
+                        output = true;
+                        await mI.reply({ content: `✅ The answer you provided is correct.` });
+                        await toReply.react("✅").catch(() => {});
                         await repliedMsg.delete().catch(() => {});
                         await msg.delete().catch(() => {});
-                        output = true;
+                        alrVerifying = false;
                     }
                 }
             });
         }
     });
 
-    const timeoutPromise = new Promise<void>((_, reject) => setTimeout(() => {
+    const timeoutPromise = new Promise<void>((_, reject) => setTimeout(async () => {
+        await msg.delete().catch(() => {});
+        output = false;
         console.log("Captcha timeout");
         reject("Captcha timeout");
+        alrVerifying = false;
     }, 60000));
 
     await Promise.race([timeoutPromise, new Promise<void>(resolve => {
@@ -164,4 +168,6 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
 
     collector.stop();
     modalCollector.stop();
+
+    return output;
 }

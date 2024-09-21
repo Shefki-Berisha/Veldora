@@ -12,27 +12,21 @@ export const verifyCommand: Command = {
         const user = message.author;
         const member = await message.guild?.members.fetch(user.id);
         const collection = await rolesCollection.findOne({ guildID: message.guildId });
+
         if (!collection) {
             await message.reply("No verification setup found for this server.\nUse `!setup` to setup verification.");
             return;
         }
+
         if (!member) {
             return console.log("No member found");
         }
 
         const verifiedRole = await message.guild?.roles.cache.find(role => role.id === collection.role);
-        const unverifiedRole = await message.guild?.roles.cache.find(role => role.id === collection.unverified)
+        const unverifiedRole = await message.guild?.roles.cache.find(role => role.id === collection.unverified);
         const channel = await message.guild?.channels.cache.find(channel => channel.id === collection.channel);
 
-        if (!verifiedRole) {
-            return;
-        }
-
-        if (!unverifiedRole) {
-            return;
-        }
-
-        if (!channel) {
+        if (!verifiedRole || !unverifiedRole || !channel) {
             return;
         }
 
@@ -44,16 +38,18 @@ export const verifyCommand: Command = {
             return;
         }
 
-        await captcha(collection.code, message, message.author);
-        if (!captcha) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        const captchaSuccessful = await captcha(collection.code, message, message.author);
+
+        if (!captchaSuccessful) {
+            await message.reply({ content: '❌ Verification failed. Please try again later.' });
+            return;
         }
-        await message.reply({ content: '✅ Verification complete.' });
 
         try {
             const completedEmbed = new EmbedBuilder()
-            .setTitle(`✅ Successfully Completed Verification In ${message.guild?.name}`)
-            .setColor("Red")
+                .setTitle(`✅ Successfully Completed Verification In ${message.guild?.name}`)
+                .setColor("Red");
+
             await member.roles.add(verifiedRole);
             await member.roles.remove(unverifiedRole);
             await user.send({ embeds: [completedEmbed] }).catch(() => {});
@@ -61,6 +57,5 @@ export const verifyCommand: Command = {
             console.log(err);
             await message.reply({ content: "❌ There was an error, couldn't add verified role/remove unverified role" });
         }
-
     }
 }
