@@ -22,6 +22,6 @@ export const feedbackCommand: Command = {
 
         let msg = await feedBackChannel.send({ embeds: [embed] });
 
-        await message.reply({ content: "Your feedback has been sent. Thank you!" });
+        await message.reply({ content: "Your feedback has been sent successfully. Thank you!" });
     }
 }
