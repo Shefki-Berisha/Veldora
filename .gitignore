@@ -2,3 +2,8 @@
 /dist/
 /node_modules/
 /build/
+.dockerignore
+Dockerfile
+README.Docker.md
+compose.yaml
+LICENSE

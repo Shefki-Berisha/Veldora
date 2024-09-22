@@ -137,6 +137,7 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
                         output = true;
                         await mI.reply({ content: `✅ The answer you provided is correct.` });
                         await toReply.react("✅").catch(() => {});
+                        await toReply.reply("✅ The answer you provided is correct. You are now verified.");
                         await repliedMsg.delete().catch(() => {});
                         await msg.delete().catch(() => {});
                         alrVerifying = false;
@@ -149,6 +150,7 @@ export async function captcha(text: string, toReply: Message, author: User | Gui
 
     const handleTimeout = async () => {
         try {
+            if (!msg) return;
             await msg.delete().catch(() => {});
             await toReply.reactions.removeAll().catch(() => {});
             await toReply.react("❌");

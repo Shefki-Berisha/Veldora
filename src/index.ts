@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, TextChannel } from 'discord.js';
 import { Command } from './types';
 import * as dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
@@ -7,6 +7,7 @@ import { verifyCommand } from './commands/verify';
 import { pingCommand } from './commands/ping';
 import { testCommand } from './commands/captchatest';
 import { helpCommand } from './commands/help';
+import { feedbackCommand } from './commands/feedback';
 import os = require('os');
 import fs = require('fs');
 
@@ -21,7 +22,7 @@ export const client = new Client({
 });
 
 const prefix = '!'; // Command prefix
-const commands: Command[] = [setupCommand, verifyCommand, testCommand, pingCommand, helpCommand];
+const commands: Command[] = [setupCommand, verifyCommand, testCommand, pingCommand, helpCommand, feedbackCommand];
 
 client.once('ready', () => {
 		console.log(`Logged in as ${client.user?.tag}!`);
@@ -37,6 +38,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 client.on('messageCreate', async (message) => {
 	if (message.author.bot || !message.content.startsWith(prefix)) return;
+	if (!(message.channel instanceof TextChannel)) return;
 	if (message.channel.isDMBased()) return;
 
 	const args = message.content.slice(prefix.length).trim().split(/ +/);
