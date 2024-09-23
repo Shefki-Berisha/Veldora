@@ -7,3 +7,4 @@ Dockerfile
 README.Docker.md
 compose.yaml
 LICENSE
+src/index.ts
